@@ -1,0 +1,104 @@
+---
+- name: Installer et configurer Filebeat dynamiquement
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars_files:
+    - vars.yml  # fichier contenant logstash_host et logstash_port à la racine du projet
+
+  tasks:
+    - name: Vérifier si Filebeat est installé
+      command: dpkg -s filebeat
+      register: filebeat_check
+      ignore_errors: true
+
+    - name: Installer Filebeat si nécessaire
+      apt:
+        name: filebeat
+        state: present
+        update_cache: yes
+      when: filebeat_check.rc != 0
+
+    - name: Vérifier si bind9 est installé
+      shell: dpkg -l | grep -qw bind9
+      register: bind_installed
+      ignore_errors: true
+
+    - name: Vérifier si nginx est installé
+      shell: dpkg -l | grep -qw nginx
+      register: nginx_installed
+      ignore_errors: true
+
+    - name: Vérifier si apache2 est installé
+      shell: dpkg -l | grep -qw apache2
+      register: apache_installed
+      ignore_errors: true
+
+    - name: Vérifier si rsyslog est installé
+      shell: dpkg -l | grep -qw rsyslog
+      register: rsyslog_installed
+      ignore_errors: true
+
+    - name: Vérifier si syslog-ng est installé
+      shell: dpkg -l | grep -qw syslog-ng
+      register: syslogng_installed
+      ignore_errors: true
+
+    - name: Lister les logs de bind9
+      find:
+        paths: /var/log/bind9
+        patterns: "*.log"
+        recurse: yes
+      register: bind_logs
+      when: bind_installed.rc == 0
+
+    - name: Lister les logs nginx (*.log dans /var/log/nginx/**)
+      find:
+        paths: /var/log/nginx
+        patterns: "*.log"
+        recurse: yes
+      register: nginx_logs
+      when: nginx_installed.rc == 0
+
+    - name: Lister les logs Apache (*.log dans /var/log/apache2/**)
+      find:
+        paths: /var/log/apache2
+        patterns: "*.log"
+        recurse: yes
+      register: apache_logs
+      when: apache_installed.rc == 0
+
+    - name: Lister les logs système (*.log dans /var/log/)
+      find:
+        paths: /var/log
+        patterns: "*.log"
+        recurse: yes
+      register: syslog_logs
+      when: rsyslog_installed.rc == 0 or syslogng_installed.rc == 0
+
+    - name: Générer le fichier de configuration Filebeat
+      template:
+        src: templates/filebeat.yml.j2
+        dest: /etc/filebeat/filebeat.yml
+        owner: root
+        group: root
+        mode: '0644'
+      vars:
+        enable_bind: "{{ bind_installed.rc == 0 }}"
+        bind_log_paths: "{{ bind_logs.files | map(attribute='path') | list if bind_installed.rc == 0 else [] }}"
+        nginx_log_paths: "{{ nginx_logs.files | map(attribute='path') | list if nginx_installed.rc == 0 else [] }}"
+        apache_log_paths: "{{ apache_logs.files | map(attribute='path') | list if apache_installed.rc == 0 else [] }}"
+        syslog_log_paths: "{{ syslog_logs.files | map(attribute='path') | list if (rsyslog_installed.rc == 0 or syslogng_installed.rc == 0) else [] }}"
+
+    - name: Vérifier la syntaxe du fichier filebeat.yml
+      command: filebeat test config -c /etc/filebeat/filebeat.yml -e
+      register: filebeat_config_test
+      failed_when: filebeat_config_test.rc != 0
+      changed_when: false
+
+    - name: Redémarrer Filebeat
+      service:
+        name: filebeat
+        state: restarted
+        enabled: true

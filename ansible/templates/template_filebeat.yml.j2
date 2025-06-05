@@ -1,0 +1,44 @@
+filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /var/log/auth.log
+
+{% if enable_bind and bind_log_paths %}
+- type: log
+  enabled: true
+  paths:
+{% for path in bind_log_paths %}
+    - {{ path }}
+{% endfor %}
+{% endif %}
+
+{% if nginx_log_paths %}
+- type: log
+  enabled: true
+  paths:
+{% for path in nginx_log_paths %}
+    - {{ path }}
+{% endfor %}
+{% endif %}
+
+{% if apache_log_paths %}
+- type: log
+  enabled: true
+  paths:
+{% for path in apache_log_paths %}
+    - {{ path }}
+{% endfor %}
+{% endif %}
+
+{% if syslog_log_paths %}
+- type: log
+  enabled: true
+  paths:
+{% for path in syslog_log_paths %}
+    - {{ path }}
+{% endfor %}
+{% endif %}
+
+output.logstash:
+  hosts: ["{{ logstash_host }}:{{ logstash_port }}"]
