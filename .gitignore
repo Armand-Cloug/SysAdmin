@@ -1,2 +1,3 @@
 .env
-
+bordel.txt
+ansible/vars.yml
