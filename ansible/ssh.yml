@@ -1,0 +1,47 @@
+---
+- name: Gestion des clés SSH et désactivation de l'accès par mot de passe SSH
+  hosts: all
+  become: yes
+  vars_files:
+    - vars.yml
+
+  tasks:
+
+    - name: 🔑 Ajouter les clés admin dans /root/.ssh/authorized_keys
+      authorized_key:
+        user: root
+        key: "{{ item }}"
+        state: present
+      loop: "{{ admin_keys }}"
+
+    - name: 🔑 Ajouter les clés aya pour tous les utilisateurs définis
+      authorized_key:
+        user: "{{ user.name }}"
+        key: "{{ key }}"
+        state: present
+      loop: "{{ user_list | product(aya_keys) | list }}"
+      loop_control:
+        set_fact:
+          user: "{{ item[0] }}"
+          key: "{{ item[1] }}"
+
+    - name: 🚫 Désactiver totalement l'accès SSH par mot de passe
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+        state: present
+        backup: yes
+
+    - name: 🚫 Empêcher root de se connecter en SSH par mot de passe (déjà couvert, mais on le garde)
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin prohibit-password'
+        state: present
+        backup: yes
+
+    - name: 🔁 Redémarrer le service SSH pour appliquer la configuration
+      service:
+        name: ssh
+        state: restarted

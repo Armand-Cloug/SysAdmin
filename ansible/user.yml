@@ -1,0 +1,50 @@
+---
+- name: Créer les utilisateurs avec ou sans sudo
+  hosts: all
+  become: yes
+  vars_files:
+    - vars.yml
+
+  tasks:
+
+    - name: 🔍 Vérifier si sudo est installé
+      shell: which sudo
+      register: sudo_check
+      ignore_errors: yes
+      changed_when: false
+
+    - name: 🛠️ Installer sudo si nécessaire
+      apt:
+        name: sudo
+        state: present
+        update_cache: yes
+      when: sudo_check.rc != 0
+
+    - name: 📇 Charger les utilisateurs existants
+      getent:
+        database: passwd
+      register: users_present
+
+    - name: 👤 Créer uniquement les utilisateurs absents
+      user:
+        name: "{{ item.name }}"
+        shell: /bin/bash
+        groups: "{{ item.name }}"
+        append: no
+        create_home: yes
+        state: present
+      loop: "{{ user_list }}"
+      when: "item.name not in users_present.ansible_facts.getent_passwd"
+
+    - name: 🔒 Configurer sudo limité pour les utilisateurs autorisés
+      copy:
+        dest: "/etc/sudoers.d/{{ item.name }}"
+        content: |
+          Cmnd_Alias FORBIDDEN = /bin/su, /usr/bin/su, /bin/bash, /bin/sh, \
+          /usr/bin/vim /etc/sudoers, /usr/bin/nano /etc/sudoers, /usr/sbin/visudo
+          {{ item.name }} ALL=(ALL) NOPASSWD: ALL, !FORBIDDEN
+        owner: root
+        group: root
+        mode: '0440'
+      loop: "{{ user_list }}"
+      when: item.sudo
